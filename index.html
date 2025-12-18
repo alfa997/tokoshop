@@ -1,1 +1,1157 @@
+<!doctype html>
+<html lang="id" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Toko Online Premium</title>
+  <script src="/_sdk/element_sdk.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      box-sizing: border-box;
+    }
+    
+    * {
+      box-sizing: border-box;
+    }
 
+    .product-card {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .product-card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.12);
+    }
+
+    .btn-primary {
+      transition: all 0.3s ease;
+    }
+
+    .btn-primary:hover {
+      transform: scale(1.02);
+    }
+
+    .btn-primary:active {
+      transform: scale(0.98);
+    }
+
+    .fade-in {
+      animation: fadeIn 0.4s ease-out;
+    }
+
+    .slide-up {
+      animation: slideUp 0.5s ease-out;
+    }
+
+    @keyframes fadeIn {
+      0% { opacity: 0; }
+      100% { opacity: 1; }
+    }
+
+    @keyframes slideUp {
+      0% { 
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      100% { 
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .modal-backdrop {
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(8px);
+    }
+
+    .cart-bounce {
+      animation: bounce 0.5s ease;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.2); }
+    }
+
+    .gradient-bg {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    .variant-btn {
+      transition: all 0.2s ease;
+    }
+
+    .variant-btn.active {
+      transform: scale(1.05);
+    }
+
+    .page-transition {
+      animation: pageSlide 0.4s ease-out;
+    }
+
+    @keyframes pageSlide {
+      0% {
+        opacity: 0;
+        transform: translateX(20px);
+      }
+      100% {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    .cart-badge {
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { 
+        opacity: 1;
+        transform: scale(1);
+      }
+      50% { 
+        opacity: 0.8;
+        transform: scale(1.1);
+      }
+    }
+
+    .toast {
+      animation: toastSlide 0.3s ease-out;
+    }
+
+    @keyframes toastSlide {
+      0% {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      ring: 2px;
+    }
+  </style>
+  <style>@view-transition { navigation: auto; }</style>
+  <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
+ </head>
+ <body class="h-full">
+  <div id="app" class="min-h-full w-full bg-gray-50"></div>
+  <script>
+    // Firebase Configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyDemoKey123456789",
+      authDomain: "demo-store.firebaseapp.com",
+      projectId: "demo-store-project",
+      storageBucket: "demo-store.appspot.com",
+      messagingSenderId: "123456789",
+      appId: "1:123456789:web:abcdef123456"
+    };
+
+    let db;
+    let auth;
+    let isAdmin = false;
+    let products = [];
+    let cart = [];
+    let currentView = 'products'; // products, productDetail, cart, checkout
+    let selectedProduct = null;
+    let selectedVariant = null;
+
+    // Initialize Firebase
+    try {
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.firestore();
+      auth = firebase.auth();
+    } catch (error) {
+      console.error('Firebase initialization error:', error);
+    }
+
+    // Default configuration
+    const defaultConfig = {
+      store_name: "Toko Online Premium",
+      store_tagline: "Belanja Mudah, Harga Terjangkau",
+      whatsapp_number: "6281234567890",
+      primary_color: "#667eea",
+      secondary_color: "#764ba2",
+      background_color: "#f9fafb",
+      text_color: "#1f2937",
+      card_color: "#ffffff",
+      font_family: "system-ui",
+      font_size: 16
+    };
+
+    // Hidden Admin Mode - Keyboard Shortcut (Ctrl + Shift + A)
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'A') {
+        e.preventDefault();
+        if (!isAdmin) {
+          showAdminLogin();
+        } else {
+          isAdmin = false;
+          showToast('Keluar dari mode admin');
+          if (currentView === 'products') render();
+        }
+      }
+    });
+
+    // Hidden Admin Mode - URL Hash (#admin)
+    window.addEventListener('hashchange', () => {
+      if (window.location.hash === '#admin' && !isAdmin) {
+        showAdminLogin();
+      }
+    });
+
+    // Check admin hash on load
+    if (window.location.hash === '#admin') {
+      setTimeout(() => showAdminLogin(), 500);
+    }
+
+    // Load cart from localStorage
+    function loadCart() {
+      const savedCart = localStorage.getItem('cart');
+      if (savedCart) {
+        cart = JSON.parse(savedCart);
+      }
+    }
+
+    // Save cart to localStorage
+    function saveCart() {
+      localStorage.setItem('cart', JSON.stringify(cart));
+    }
+
+    // Load products from Firestore
+    async function loadProducts() {
+      if (!db) return;
+      
+      try {
+        const snapshot = await db.collection('products').orderBy('createdAt', 'desc').get();
+        products = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        render();
+      } catch (error) {
+        console.error('Error loading products:', error);
+      }
+    }
+
+    // Add product to Firestore
+    async function addProduct(product) {
+      if (!db) return;
+      
+      try {
+        await db.collection('products').add({
+          ...product,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        await loadProducts();
+      } catch (error) {
+        console.error('Error adding product:', error);
+      }
+    }
+
+    // Update product in Firestore
+    async function updateProduct(id, product) {
+      if (!db) return;
+      
+      try {
+        await db.collection('products').doc(id).update(product);
+        await loadProducts();
+      } catch (error) {
+        console.error('Error updating product:', error);
+      }
+    }
+
+    // Delete product from Firestore
+    async function deleteProduct(id) {
+      if (!db) return;
+      
+      try {
+        await db.collection('products').doc(id).delete();
+        await loadProducts();
+      } catch (error) {
+        console.error('Error deleting product:', error);
+      }
+    }
+
+    // View product detail
+    function viewProductDetail(product) {
+      selectedProduct = product;
+      selectedVariant = product.variants && product.variants.length > 0 ? product.variants[0] : null;
+      currentView = 'productDetail';
+      render();
+    }
+
+    // Add to cart
+    function addToCart(product, variant, quantity = 1) {
+      const cartKey = `${product.id}_${variant.name}`;
+      const existingItem = cart.find(item => item.cartKey === cartKey);
+      
+      if (existingItem) {
+        existingItem.quantity += quantity;
+      } else {
+        cart.push({
+          cartKey,
+          productId: product.id,
+          productName: product.name,
+          productImage: product.image,
+          variantName: variant.name,
+          variantPrice: variant.price,
+          quantity: quantity
+        });
+      }
+      
+      saveCart();
+      showToast('Ditambahkan ke keranjang!');
+      
+      // Animate cart icon
+      const cartIcon = document.querySelector('.cart-icon');
+      if (cartIcon) {
+        cartIcon.classList.add('cart-bounce');
+        setTimeout(() => cartIcon.classList.remove('cart-bounce'), 500);
+      }
+      
+      render();
+    }
+
+    // Update cart quantity
+    function updateCartQuantity(cartKey, quantity) {
+      const item = cart.find(item => item.cartKey === cartKey);
+      if (item) {
+        item.quantity = Math.max(1, quantity);
+        saveCart();
+        render();
+      }
+    }
+
+    // Remove from cart
+    function removeFromCart(cartKey) {
+      cart = cart.filter(item => item.cartKey !== cartKey);
+      saveCart();
+      showToast('Item dihapus dari keranjang');
+      render();
+    }
+
+    // Calculate cart total
+    function getCartTotal() {
+      return cart.reduce((total, item) => total + (item.variantPrice * item.quantity), 0);
+    }
+
+    // Checkout via WhatsApp
+    function checkout() {
+      if (cart.length === 0) {
+        showToast('Keranjang belanja kosong!');
+        return;
+      }
+
+      const config = window.elementSdk?.config || defaultConfig;
+      let message = `*Pesanan Baru dari ${config.store_name}*\n\n`;
+      
+      cart.forEach((item, index) => {
+        message += `${index + 1}. ${item.productName}\n`;
+        message += `   Varian: ${item.variantName}\n`;
+        message += `   Harga: Rp ${item.variantPrice.toLocaleString('id-ID')}\n`;
+        message += `   Jumlah: ${item.quantity}\n`;
+        message += `   Subtotal: Rp ${(item.variantPrice * item.quantity).toLocaleString('id-ID')}\n\n`;
+      });
+      
+      message += `*Total: Rp ${getCartTotal().toLocaleString('id-ID')}*`;
+      
+      const whatsappUrl = `https://wa.me/${config.whatsapp_number}?text=${encodeURIComponent(message)}`;
+      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+      
+      // Clear cart after checkout
+      cart = [];
+      saveCart();
+      currentView = 'products';
+      showToast('Terima kasih! Pesanan Anda telah dikirim ke WhatsApp');
+      render();
+    }
+
+    // Show toast notification
+    function showToast(message) {
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-4 right-4 bg-gray-900 text-white px-6 py-3 rounded-xl shadow-2xl z-50 toast';
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(20px)';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    // Show more menu
+    function showMoreMenu() {
+      const config = window.elementSdk?.config || defaultConfig;
+      const baseSize = config.font_size || defaultConfig.font_size;
+      
+      const content = `
+        <div class="space-y-2">
+          <button onclick="contactAdmin(); document.querySelector('.modal-backdrop').remove()" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 rounded-xl transition text-left">
+            <span style="font-size: ${baseSize * 1.25}px">📞</span>
+            <span style="font-size: ${baseSize}px; color: ${config.text_color}">Hubungi Admin</span>
+          </button>
+          <button onclick="showAbout(); document.querySelector('.modal-backdrop').remove()" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 rounded-xl transition text-left">
+            <span style="font-size: ${baseSize * 1.25}px">ℹ️</span>
+            <span style="font-size: ${baseSize}px; color: ${config.text_color}">Tentang Website</span>
+          </button>
+          <button onclick="showHowToBuy(); document.querySelector('.modal-backdrop').remove()" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 rounded-xl transition text-left">
+            <span style="font-size: ${baseSize * 1.25}px">🛒</span>
+            <span style="font-size: ${baseSize}px; color: ${config.text_color}">Cara Beli</span>
+          </button>
+          <button onclick="showTerms(); document.querySelector('.modal-backdrop').remove()" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 rounded-xl transition text-left">
+            <span style="font-size: ${baseSize * 1.25}px">📋</span>
+            <span style="font-size: ${baseSize}px; color: ${config.text_color}">Syarat & Ketentuan</span>
+          </button>
+        </div>
+      `;
+      
+      showModal('Menu', content);
+    }
+
+    // Contact admin via WhatsApp
+    function contactAdmin() {
+      const config = window.elementSdk?.config || defaultConfig;
+      const message = `Halo ${config.store_name}, saya ingin bertanya...`;
+      const whatsappUrl = `https://wa.me/${config.whatsapp_number}?text=${encodeURIComponent(message)}`;
+      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    }
+
+    // Show about page
+    function showAbout() {
+      const config = window.elementSdk?.config || defaultConfig;
+      const baseSize = config.font_size || defaultConfig.font_size;
+      
+      const content = `
+        <div class="space-y-4">
+          <p style="font-size: ${baseSize}px; color: ${config.text_color}">
+            <strong>${config.store_name}</strong> adalah platform belanja online yang menyediakan berbagai produk berkualitas dengan harga terjangkau.
+          </p>
+          <p style="font-size: ${baseSize}px; color: ${config.text_color}">
+            Kami berkomitmen untuk memberikan pengalaman belanja yang mudah, aman, dan menyenangkan untuk semua pelanggan.
+          </p>
+          <div class="pt-4 border-t border-gray-200">
+            <p style="font-size: ${baseSize * 0.875}px; color: ${config.text_color}; opacity: 0.7">
+              ${config.store_tagline}
+            </p>
+          </div>
+        </div>
+      `;
+      
+      showModal('ℹ️ Tentang Website', content);
+    }
+
+    // Show how to buy
+    function showHowToBuy() {
+      const config = window.elementSdk?.config || defaultConfig;
+      const baseSize = config.font_size || defaultConfig.font_size;
+      
+      const content = `
+        <div class="space-y-4">
+          <div class="flex items-start gap-3">
+            <div class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center" style="background-color: ${config.primary_color}; color: white; font-size: ${baseSize * 0.875}px">1</div>
+            <div>
+              <h4 class="font-semibold mb-1" style="font-size: ${baseSize}px; color: ${config.text_color}">Pilih Produk</h4>
+              <p style="font-size: ${baseSize * 0.875}px; color: ${config.text_color}; opacity: 0.7">Klik produk yang Anda inginkan untuk melihat detail dan varian.</p>
+            </div>
+          </div>
+          
+          <div class="flex items-start gap-3">
+            <div class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center" style="background-color: ${config.primary_color}; color: white; font-size: ${baseSize * 0.875}px">2</div>
+            <div>
+              <h4 class="font-semibold mb-1" style="font-size: ${baseSize}px; color: ${config.text_color}">Pilih Varian</h4>
+              <p style="font-size: ${baseSize * 0.875}px; color: ${config.text_color}; opacity: 0.7">Pilih varian produk yang sesuai kebutuhan Anda.</p>
+            </div>
+          </div>
+          
+          <div class="flex items-start gap-3">
+            <div class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center" style="background-color: ${config.primary_color}; color: white; font-size: ${baseSize * 0.875}px">3</div>
+            <div>
+              <h4 class="font-semibold mb-1" style="font-size: ${baseSize}px; color: ${config.text_color}">Tambah ke Keranjang</h4>
+              <p style="font-size: ${baseSize * 0.875}px; color: ${config.text_color}; opacity: 0.7">Klik tombol "Tambah ke Keranjang" untuk menambahkan produk.</p>
+            </div>
+          </div>
+          
+          <div class="flex items-start gap-3">
+            <div class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center" style="background-color: ${config.primary_color}; color: white; font-size: ${baseSize * 0.875}px">4</div>
+            <div>
+              <h4 class="font-semibold mb-1" style="font-size: ${baseSize}px; color: ${config.text_color}">Checkout</h4>
+              <p style="font-size: ${baseSize * 0.875}px; color: ${config.text_color}; opacity: 0.7">Klik ikon keranjang, lalu lanjut ke checkout via WhatsApp.</p>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      showModal('🛒 Cara Beli', content);
+    }
+
+    // Show terms and conditions
+    function showTerms() {
+      const config = window.elementSdk?.config || defaultConfig;
+      const baseSize = config.font_size || defaultConfig.font_size;
+      
+      const content = `
+        <div class="space-y-4" style="max-height: 400px; overflow-y: auto">
+          <div>
+            <h4 class="font-semibold mb-2" style="font-size: ${baseSize}px; color: ${config.text_color}">1. Pemesanan</h4>
+            <p style="font-size: ${baseSize * 0.875}px; color: ${config.text_color}; opacity: 0.7">
+              Pemesanan dilakukan melalui WhatsApp setelah checkout. Konfirmasi pesanan akan dikirim oleh admin.
+            </p>
+          </div>
+          
+          <div>
+            <h4 class="font-semibold mb-2" style="font-size: ${baseSize}px; color: ${config.text_color}">2. Pembayaran</h4>
+            <p style="font-size: ${baseSize * 0.875}px; color: ${config.text_color}; opacity: 0.7">
+              Metode pembayaran dan detail rekening akan diinformasikan oleh admin setelah konfirmasi pesanan.
+            </p>
+          </div>
+          
+          <div>
+            <h4 class="font-semibold mb-2" style="font-size: ${baseSize}px; color: ${config.text_color}">3. Pengiriman</h4>
+            <p style="font-size: ${baseSize * 0.875}px; color: ${config.text_color}; opacity: 0.7">
+              Produk digital akan dikirim langsung setelah pembayaran dikonfirmasi. Produk fisik akan dikirim sesuai kesepakatan.
+            </p>
+          </div>
+          
+          <div>
+            <h4 class="font-semibold mb-2" style="font-size: ${baseSize}px; color: ${config.text_color}">4. Pengembalian</h4>
+            <p style="font-size: ${baseSize * 0.875}px; color: ${config.text_color}; opacity: 0.7">
+              Untuk produk yang bermasalah, silakan hubungi admin maksimal 1x24 jam setelah pembelian.
+            </p>
+          </div>
+        </div>
+      `;
+      
+      showModal('📋 Syarat & Ketentuan', content);
+    }
+
+    // Show modal
+    function showModal(title, content, size = 'max-w-md') {
+      const modal = document.createElement('div');
+      modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop';
+      modal.onclick = (e) => {
+        if (e.target === modal) modal.remove();
+      };
+
+      const config = window.elementSdk?.config || defaultConfig;
+      const customFont = config.font_family || defaultConfig.font_family;
+      const baseFontStack = 'system-ui, -apple-system, sans-serif';
+      const baseSize = config.font_size || defaultConfig.font_size;
+      
+      modal.innerHTML = `
+        <div class="${size} w-full bg-white rounded-2xl shadow-2xl overflow-hidden fade-in" style="font-family: ${customFont}, ${baseFontStack}">
+          <div class="p-6">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="font-bold" style="color: ${config.text_color}; font-size: ${baseSize * 1.25}px">${title}</h3>
+              <button onclick="this.closest('.modal-backdrop').remove()" class="text-gray-400 hover:text-gray-600 text-3xl leading-none">&times;</button>
+            </div>
+            <div>${content}</div>
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(modal);
+    }
+
+    // Show admin login
+    function showAdminLogin() {
+      const config = window.elementSdk?.config || defaultConfig;
+      const baseSize = config.font_size || defaultConfig.font_size;
+      
+      const content = `
+        <form id="adminForm" class="space-y-4">
+          <div>
+            <label class="block font-medium mb-2" style="font-size: ${baseSize * 0.875}px">Password Admin</label>
+            <input type="password" id="adminPassword" required class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 transition" style="font-size: ${baseSize}px">
+          </div>
+          <button type="submit" class="w-full btn-primary text-white font-semibold py-3 rounded-xl" style="background: linear-gradient(135deg, ${config.primary_color} 0%, ${config.secondary_color} 100%); font-size: ${baseSize}px">
+            Masuk sebagai Admin
+          </button>
+          <p class="text-center text-gray-500" style="font-size: ${baseSize * 0.875}px">Password default: admin123</p>
+        </form>
+      `;
+      
+      showModal('🔐 Admin Login', content);
+      
+      setTimeout(() => {
+        document.getElementById('adminForm').onsubmit = (e) => {
+          e.preventDefault();
+          const password = document.getElementById('adminPassword').value;
+          
+          if (password === 'admin123') {
+            isAdmin = true;
+            document.querySelector('.modal-backdrop').remove();
+            showToast('Berhasil masuk sebagai admin!');
+            currentView = 'products';
+            render();
+          } else {
+            showToast('Password salah!');
+          }
+        };
+      }, 100);
+    }
+
+    // Show add/edit product modal
+    function showProductModal(product = null) {
+      const isEdit = product !== null;
+      const config = window.elementSdk?.config || defaultConfig;
+      const baseSize = config.font_size || defaultConfig.font_size;
+      
+      const content = `
+        <form id="productForm" class="space-y-4">
+          <div>
+            <label class="block font-medium mb-2" style="font-size: ${baseSize * 0.875}px">Nama Produk</label>
+            <input type="text" id="productName" value="${product?.name || ''}" required class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 transition" style="font-size: ${baseSize}px">
+          </div>
+          
+          <div>
+            <label class="block font-medium mb-2" style="font-size: ${baseSize * 0.875}px">Deskripsi</label>
+            <textarea id="productDesc" rows="3" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 transition" style="font-size: ${baseSize}px">${product?.description || ''}</textarea>
+          </div>
+          
+          <div>
+            <label class="block font-medium mb-2" style="font-size: ${baseSize * 0.875}px">URL Gambar</label>
+            <input type="url" id="productImage" value="${product?.image || ''}" placeholder="https://example.com/image.jpg" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 transition" style="font-size: ${baseSize}px">
+          </div>
+          
+          <div>
+            <label class="block font-medium mb-2" style="font-size: ${baseSize * 0.875}px">Varian Produk</label>
+            <div id="variantsList" class="space-y-3">
+              ${product?.variants?.map((v, i) => `
+                <div class="flex gap-2">
+                  <input type="text" placeholder="Nama varian" value="${v.name}" class="flex-1 px-3 py-2 border-2 border-gray-200 rounded-lg variant-name" style="font-size: ${baseSize * 0.875}px">
+                  <input type="number" placeholder="Harga" value="${v.price}" class="w-32 px-3 py-2 border-2 border-gray-200 rounded-lg variant-price" style="font-size: ${baseSize * 0.875}px">
+                  <button type="button" onclick="this.parentElement.remove()" class="px-3 text-red-500 hover:text-red-700">🗑️</button>
+                </div>
+              `).join('') || ''}
+            </div>
+            <button type="button" onclick="addVariantField()" class="mt-2 text-purple-600 hover:text-purple-700 font-medium" style="font-size: ${baseSize * 0.875}px">+ Tambah Varian</button>
+          </div>
+          
+          <button type="submit" class="w-full btn-primary text-white font-semibold py-3 rounded-xl" style="background: linear-gradient(135deg, ${config.primary_color} 0%, ${config.secondary_color} 100%); font-size: ${baseSize}px">
+            ${isEdit ? '💾 Update Produk' : '➕ Tambah Produk'}
+          </button>
+        </form>
+      `;
+      
+      showModal(isEdit ? 'Edit Produk' : 'Tambah Produk Baru', content, 'max-w-2xl');
+      
+      setTimeout(() => {
+        // Add variant field function
+        window.addVariantField = () => {
+          const variantsList = document.getElementById('variantsList');
+          const newVariant = document.createElement('div');
+          newVariant.className = 'flex gap-2';
+          newVariant.innerHTML = `
+            <input type="text" placeholder="Nama varian (contoh: 1GB / 100)" class="flex-1 px-3 py-2 border-2 border-gray-200 rounded-lg variant-name" style="font-size: ${baseSize * 0.875}px">
+            <input type="number" placeholder="Harga" class="w-32 px-3 py-2 border-2 border-gray-200 rounded-lg variant-price" style="font-size: ${baseSize * 0.875}px">
+            <button type="button" onclick="this.parentElement.remove()" class="px-3 text-red-500 hover:text-red-700">🗑️</button>
+          `;
+          variantsList.appendChild(newVariant);
+        };
+
+        document.getElementById('productForm').onsubmit = async (e) => {
+          e.preventDefault();
+          
+          const variantNames = Array.from(document.querySelectorAll('.variant-name')).map(el => el.value);
+          const variantPrices = Array.from(document.querySelectorAll('.variant-price')).map(el => parseInt(el.value) || 0);
+          
+          const variants = variantNames.map((name, i) => ({
+            name: name || `Varian ${i + 1}`,
+            price: variantPrices[i]
+          })).filter(v => v.price > 0);
+          
+          if (variants.length === 0) {
+            showToast('Tambahkan minimal 1 varian produk!');
+            return;
+          }
+          
+          const productData = {
+            name: document.getElementById('productName').value,
+            description: document.getElementById('productDesc').value,
+            image: document.getElementById('productImage').value,
+            variants: variants
+          };
+          
+          if (isEdit) {
+            await updateProduct(product.id, productData);
+            showToast('Produk berhasil diupdate!');
+          } else {
+            await addProduct(productData);
+            showToast('Produk berhasil ditambahkan!');
+          }
+          
+          document.querySelector('.modal-backdrop').remove();
+        };
+      }, 100);
+    }
+
+    // Show delete confirmation
+    function confirmDelete(productId, productName) {
+      const config = window.elementSdk?.config || defaultConfig;
+      const baseSize = config.font_size || defaultConfig.font_size;
+      
+      const content = `
+        <div class="space-y-4">
+          <p class="text-center" style="font-size: ${baseSize}px">Apakah Anda yakin ingin menghapus <strong>${productName}</strong>?</p>
+          <div class="flex gap-3">
+            <button onclick="document.querySelector('.modal-backdrop').remove()" class="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl font-medium transition" style="font-size: ${baseSize}px">Batal</button>
+            <button onclick="deleteProduct('${productId}'); document.querySelector('.modal-backdrop').remove(); showToast('Produk berhasil dihapus!');" class="flex-1 px-4 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium transition" style="font-size: ${baseSize}px">Hapus</button>
+          </div>
+        </div>
+      `;
+      
+      showModal('⚠️ Konfirmasi Hapus', content);
+    }
+
+    // Render products list
+    function renderProductsList() {
+      const config = window.elementSdk?.config || defaultConfig;
+      const customFont = config.font_family || defaultConfig.font_family;
+      const baseFontStack = 'system-ui, -apple-system, sans-serif';
+      const baseSize = config.font_size || defaultConfig.font_size;
+
+      return `
+        <div class="page-transition">
+          ${isAdmin ? `
+            <div class="mb-6 flex justify-between items-center">
+              <button onclick="showProductModal()" class="btn-primary text-white px-6 py-3 rounded-xl font-semibold shadow-lg" style="background: linear-gradient(135deg, ${config.primary_color} 0%, ${config.secondary_color} 100%); font-size: ${baseSize}px">
+                ➕ Tambah Produk
+              </button>
+              <button onclick="isAdmin = false; render(); showToast('Keluar dari mode admin')" class="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-semibold transition" style="font-size: ${baseSize}px">
+                🚪 Logout Admin
+              </button>
+            </div>
+          ` : ''}
+
+          ${products.length === 0 ? `
+            <div class="text-center py-20">
+              <p class="text-6xl mb-4">🛍️</p>
+              <p class="font-semibold mb-2" style="color: ${config.text_color}; font-size: ${baseSize * 1.25}px">Belum ada produk</p>
+              <p style="color: ${config.text_color}; font-size: ${baseSize}px; opacity: 0.6">${isAdmin ? 'Klik "Tambah Produk" untuk memulai' : 'Produk akan segera tersedia'}</p>
+            </div>
+          ` : `
+            <div class="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+              ${products.map(product => {
+                const minPrice = product.variants && product.variants.length > 0 
+                  ? Math.min(...product.variants.map(v => v.price))
+                  : 0;
+                  
+                return `
+                  <div class="bg-white rounded-2xl shadow-md overflow-hidden product-card cursor-pointer" style="background-color: ${config.card_color}" onclick="${isAdmin ? '' : `viewProductDetail(${JSON.stringify(product).replace(/"/g, '&quot;')})`}">
+                    <div class="aspect-square bg-gradient-to-br from-purple-50 to-blue-50 flex items-center justify-center overflow-hidden">
+                      ${product.image ? 
+                        `<img src="${product.image}" alt="${product.name}" class="w-full h-full object-cover" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'">
+                         <div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-size:${baseSize * 3}px">📦</div>` : 
+                        `<span style="font-size: ${baseSize * 3}px">📦</span>`
+                      }
+                    </div>
+                    <div class="p-4">
+                      <h3 class="font-bold mb-2 line-clamp-2" style="color: ${config.text_color}; font-size: ${baseSize}px">${product.name}</h3>
+                      <p class="font-bold mb-3" style="color: ${config.primary_color}; font-size: ${baseSize * 1.125}px">
+                        ${product.variants && product.variants.length > 0 
+                          ? `Mulai Rp ${minPrice.toLocaleString('id-ID')}`
+                          : 'Hubungi untuk harga'
+                        }
+                      </p>
+                      
+                      ${isAdmin ? `
+                        <div class="flex gap-2">
+                          <button onclick='event.stopPropagation(); showProductModal(${JSON.stringify(product).replace(/'/g, "\\'")}); ' class="flex-1 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition" style="font-size: ${baseSize * 0.875}px">✏️ Edit</button>
+                          <button onclick="event.stopPropagation(); confirmDelete('${product.id}', '${product.name.replace(/'/g, "\\'")}'); " class="flex-1 px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition" style="font-size: ${baseSize * 0.875}px">🗑️ Hapus</button>
+                        </div>
+                      ` : `
+                        <button class="w-full btn-primary text-white font-semibold py-2.5 rounded-lg" style="background: linear-gradient(135deg, ${config.primary_color} 0%, ${config.secondary_color} 100%); font-size: ${baseSize * 0.875}px">
+                          Lihat Detail
+                        </button>
+                      `}
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `}
+        </div>
+      `;
+    }
+
+    // Render product detail
+    function renderProductDetail() {
+      if (!selectedProduct) {
+        currentView = 'products';
+        render();
+        return '';
+      }
+
+      const config = window.elementSdk?.config || defaultConfig;
+      const customFont = config.font_family || defaultConfig.font_family;
+      const baseFontStack = 'system-ui, -apple-system, sans-serif';
+      const baseSize = config.font_size || defaultConfig.font_size;
+
+      const currentPrice = selectedVariant ? selectedVariant.price : 0;
+
+      return `
+        <div class="page-transition max-w-4xl mx-auto">
+          <button onclick="currentView = 'products'; render()" class="mb-6 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition" style="font-size: ${baseSize}px">
+            <span class="text-2xl">←</span>
+            <span class="font-medium">Kembali</span>
+          </button>
+
+          <div class="bg-white rounded-3xl shadow-xl overflow-hidden" style="background-color: ${config.card_color}">
+            <div class="aspect-square sm:aspect-video bg-gradient-to-br from-purple-50 to-blue-50 flex items-center justify-center overflow-hidden">
+              ${selectedProduct.image ? 
+                `<img src="${selectedProduct.image}" alt="${selectedProduct.name}" class="w-full h-full object-cover" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'">
+                 <div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-size:${baseSize * 5}px">📦</div>` : 
+                `<span style="font-size: ${baseSize * 5}px">📦</span>`
+              }
+            </div>
+
+            <div class="p-6 sm:p-8">
+              <h1 class="font-bold mb-3" style="color: ${config.text_color}; font-size: ${baseSize * 1.75}px">${selectedProduct.name}</h1>
+              
+              <div class="mb-6">
+                <p class="font-bold" style="color: ${config.primary_color}; font-size: ${baseSize * 2}px">
+                  Rp ${currentPrice.toLocaleString('id-ID')}
+                </p>
+              </div>
+
+              ${selectedProduct.variants && selectedProduct.variants.length > 0 ? `
+                <div class="mb-6">
+                  <label class="block font-semibold mb-3" style="color: ${config.text_color}; font-size: ${baseSize}px">Pilih Varian:</label>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    ${selectedProduct.variants.map(variant => `
+                      <button onclick="selectedVariant = ${JSON.stringify(variant).replace(/"/g, '&quot;')}; render()" 
+                        class="variant-btn px-4 py-3 rounded-xl border-2 text-left ${selectedVariant?.name === variant.name ? 'active border-purple-500 bg-purple-50' : 'border-gray-200 bg-white hover:border-gray-300'}"
+                        style="font-size: ${baseSize * 0.875}px">
+                        <div class="font-semibold" style="color: ${config.text_color}">${variant.name}</div>
+                        <div class="font-bold mt-1" style="color: ${config.primary_color}">Rp ${variant.price.toLocaleString('id-ID')}</div>
+                      </button>
+                    `).join('')}
+                  </div>
+                </div>
+              ` : ''}
+
+              ${selectedProduct.description ? `
+                <div class="mb-6">
+                  <h3 class="font-semibold mb-2" style="color: ${config.text_color}; font-size: ${baseSize * 1.125}px">Deskripsi:</h3>
+                  <p class="leading-relaxed" style="color: ${config.text_color}; font-size: ${baseSize}px; opacity: 0.8">${selectedProduct.description}</p>
+                </div>
+              ` : ''}
+
+              <button onclick="if(selectedVariant) { addToCart(selectedProduct, selectedVariant); } else { showToast('Pilih varian terlebih dahulu!'); }" 
+                class="w-full btn-primary text-white font-bold py-4 rounded-xl shadow-lg" 
+                style="background: linear-gradient(135deg, ${config.primary_color} 0%, ${config.secondary_color} 100%); font-size: ${baseSize * 1.125}px">
+                🛒 Tambah ke Keranjang
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Render cart view
+    function renderCart() {
+      const config = window.elementSdk?.config || defaultConfig;
+      const customFont = config.font_family || defaultConfig.font_family;
+      const baseFontStack = 'system-ui, -apple-system, sans-serif';
+      const baseSize = config.font_size || defaultConfig.font_size;
+
+      return `
+        <div class="page-transition max-w-4xl mx-auto">
+          <div class="flex items-center justify-between mb-6">
+            <h2 class="font-bold" style="color: ${config.text_color}; font-size: ${baseSize * 1.5}px">Keranjang Belanja</h2>
+            <button onclick="currentView = 'products'; render()" class="text-gray-600 hover:text-gray-900 transition" style="font-size: ${baseSize}px">
+              Lanjut Belanja
+            </button>
+          </div>
+
+          ${cart.length === 0 ? `
+            <div class="bg-white rounded-2xl shadow-lg p-12 text-center" style="background-color: ${config.card_color}">
+              <p class="text-6xl mb-4">🛒</p>
+              <p class="font-semibold mb-2" style="color: ${config.text_color}; font-size: ${baseSize * 1.25}px">Keranjang Kosong</p>
+              <p class="mb-6" style="color: ${config.text_color}; font-size: ${baseSize}px; opacity: 0.6">Yuk, mulai belanja!</p>
+              <button onclick="currentView = 'products'; render()" class="btn-primary text-white px-8 py-3 rounded-xl font-semibold" style="background: linear-gradient(135deg, ${config.primary_color} 0%, ${config.secondary_color} 100%); font-size: ${baseSize}px">
+                Mulai Belanja
+              </button>
+            </div>
+          ` : `
+            <div class="space-y-4 mb-6">
+              ${cart.map(item => `
+                <div class="bg-white rounded-2xl shadow-md p-4 sm:p-6 fade-in" style="background-color: ${config.card_color}">
+                  <div class="flex gap-4">
+                    <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-xl bg-gradient-to-br from-purple-50 to-blue-50 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                      ${item.productImage ? 
+                        `<img src="${item.productImage}" alt="${item.productName}" class="w-full h-full object-cover" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'">
+                         <div style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-size:${baseSize * 2}px">📦</div>` : 
+                        `<span style="font-size: ${baseSize * 2}px">📦</span>`
+                      }
+                    </div>
+                    
+                    <div class="flex-1 min-w-0">
+                      <h3 class="font-bold mb-1" style="color: ${config.text_color}; font-size: ${baseSize}px">${item.productName}</h3>
+                      <p class="text-gray-500 mb-2" style="font-size: ${baseSize * 0.875}px">${item.variantName}</p>
+                      <p class="font-bold" style="color: ${config.primary_color}; font-size: ${baseSize}px">Rp ${item.variantPrice.toLocaleString('id-ID')}</p>
+                    </div>
+
+                    <div class="flex flex-col items-end gap-2">
+                      <button onclick="removeFromCart('${item.cartKey}')" class="text-red-500 hover:text-red-700 p-2">
+                        <span style="font-size: ${baseSize * 1.25}px">🗑️</span>
+                      </button>
+                      
+                      <div class="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+                        <button onclick="updateCartQuantity('${item.cartKey}', ${item.quantity - 1})" class="w-8 h-8 flex items-center justify-center hover:bg-gray-200 rounded transition" style="font-size: ${baseSize * 1.125}px">−</button>
+                        <span class="w-10 text-center font-semibold" style="color: ${config.text_color}; font-size: ${baseSize}px">${item.quantity}</span>
+                        <button onclick="updateCartQuantity('${item.cartKey}', ${item.quantity + 1})" class="w-8 h-8 flex items-center justify-center hover:bg-gray-200 rounded transition" style="font-size: ${baseSize * 1.125}px">+</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+
+            <div class="bg-white rounded-2xl shadow-lg p-6" style="background-color: ${config.card_color}">
+              <div class="flex justify-between items-center mb-6">
+                <span class="font-bold" style="color: ${config.text_color}; font-size: ${baseSize * 1.25}px">Total:</span>
+                <span class="font-bold" style="color: ${config.primary_color}; font-size: ${baseSize * 1.5}px">Rp ${getCartTotal().toLocaleString('id-ID')}</span>
+              </div>
+              
+              <button onclick="currentView = 'checkout'; render()" class="w-full btn-primary text-white font-bold py-4 rounded-xl shadow-lg" style="background: linear-gradient(135deg, ${config.primary_color} 0%, ${config.secondary_color} 100%); font-size: ${baseSize * 1.125}px">
+                Lanjut ke Checkout
+              </button>
+            </div>
+          `}
+        </div>
+      `;
+    }
+
+    // Render checkout view
+    function renderCheckout() {
+      const config = window.elementSdk?.config || defaultConfig;
+      const customFont = config.font_family || defaultConfig.font_family;
+      const baseFontStack = 'system-ui, -apple-system, sans-serif';
+      const baseSize = config.font_size || defaultConfig.font_size;
+
+      return `
+        <div class="page-transition max-w-4xl mx-auto">
+          <button onclick="currentView = 'cart'; render()" class="mb-6 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition" style="font-size: ${baseSize}px">
+            <span class="text-2xl">←</span>
+            <span class="font-medium">Kembali</span>
+          </button>
+
+          <h2 class="font-bold mb-6" style="color: ${config.text_color}; font-size: ${baseSize * 1.75}px">Checkout</h2>
+
+          <div class="bg-white rounded-2xl shadow-lg p-6 sm:p-8 mb-6" style="background-color: ${config.card_color}">
+            <h3 class="font-bold mb-4" style="color: ${config.text_color}; font-size: ${baseSize * 1.25}px">Ringkasan Pesanan</h3>
+            
+            <div class="space-y-4 mb-6">
+              ${cart.map(item => `
+                <div class="flex justify-between items-start py-3 border-b border-gray-100">
+                  <div class="flex-1">
+                    <p class="font-semibold" style="color: ${config.text_color}; font-size: ${baseSize}px">${item.productName}</p>
+                    <p class="text-gray-500" style="font-size: ${baseSize * 0.875}px">${item.variantName}</p>
+                    <p class="text-gray-500" style="font-size: ${baseSize * 0.875}px">Qty: ${item.quantity}</p>
+                  </div>
+                  <div class="text-right">
+                    <p class="font-bold" style="color: ${config.primary_color}; font-size: ${baseSize}px">Rp ${(item.variantPrice * item.quantity).toLocaleString('id-ID')}</p>
+                    <button onclick="removeFromCart('${item.cartKey}')" class="text-red-500 hover:text-red-700 mt-1" style="font-size: ${baseSize * 0.875}px">Hapus</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+
+            <div class="border-t-2 border-gray-200 pt-4">
+              <div class="flex justify-between items-center mb-6">
+                <span class="font-bold" style="color: ${config.text_color}; font-size: ${baseSize * 1.375}px">Total Pembayaran:</span>
+                <span class="font-bold" style="color: ${config.primary_color}; font-size: ${baseSize * 1.75}px">Rp ${getCartTotal().toLocaleString('id-ID')}</span>
+              </div>
+
+              <button onclick="checkout()" class="w-full btn-primary text-white font-bold py-4 rounded-xl shadow-lg flex items-center justify-center gap-3" style="background: linear-gradient(135deg, ${config.primary_color} 0%, ${config.secondary_color} 100%); font-size: ${baseSize * 1.125}px">
+                <span style="font-size: ${baseSize * 1.5}px">💬</span>
+                <span>Checkout via WhatsApp</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Main render function
+    function render() {
+      const config = window.elementSdk?.config || defaultConfig;
+      const customFont = config.font_family || defaultConfig.font_family;
+      const baseFontStack = 'system-ui, -apple-system, sans-serif';
+      const baseSize = config.font_size || defaultConfig.font_size;
+
+      let mainContent = '';
+      
+      switch(currentView) {
+        case 'productDetail':
+          mainContent = renderProductDetail();
+          break;
+        case 'cart':
+          mainContent = renderCart();
+          break;
+        case 'checkout':
+          mainContent = renderCheckout();
+          break;
+        default:
+          mainContent = renderProductsList();
+      }
+
+      document.getElementById('app').innerHTML = `
+        <div class="min-h-full w-full" style="background-color: ${config.background_color}; font-family: ${customFont}, ${baseFontStack}">
+          <!-- Header -->
+          <header class="sticky top-0 z-40 shadow-lg" style="background: linear-gradient(135deg, ${config.primary_color} 0%, ${config.secondary_color} 100%)">
+            <div class="max-w-7xl mx-auto px-4 py-4 sm:py-5">
+              <div class="flex justify-between items-center">
+                <div class="cursor-pointer" onclick="currentView = 'products'; render()">
+                  <h1 class="text-white font-bold" style="font-size: ${baseSize * 1.25}px">${config.store_name}</h1>
+                  <p class="text-white" style="font-size: ${baseSize * 0.75}px; opacity: 0.9">${config.store_tagline}</p>
+                </div>
+                <div class="flex items-center gap-3 sm:gap-4">
+                  <button onclick="currentView = 'cart'; render()" class="relative p-2 text-white hover:bg-white hover:bg-opacity-20 rounded-xl transition cart-icon">
+                    <span style="font-size: ${baseSize * 1.5}px">🛒</span>
+                    ${cart.length > 0 ? `<span class="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center cart-badge font-bold" style="font-size: ${baseSize * 0.75}px">${cart.length}</span>` : ''}
+                  </button>
+                  <button onclick="showMoreMenu()" class="p-2 text-white hover:bg-white hover:bg-opacity-20 rounded-xl transition">
+                    <span style="font-size: ${baseSize * 1.5}px">⋮</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </header>
+
+          <!-- Main Content -->
+          <main class="max-w-7xl mx-auto px-4 py-6 sm:py-8">
+            ${mainContent}
+          </main>
+
+          <!-- Footer -->
+          <footer class="mt-16 py-8 text-center" style="background: linear-gradient(135deg, ${config.primary_color} 0%, ${config.secondary_color} 100%)">
+            <p class="text-white mb-2" style="font-size: ${baseSize}px; opacity: 0.95">© 2024 ${config.store_name}</p>
+            <p class="text-white" style="font-size: ${baseSize * 0.875}px; opacity: 0.8">Belanja Mudah, Harga Terjangkau</p>
+          </footer>
+        </div>
+      `;
+    }
+
+    // Element SDK configuration
+    async function onConfigChange(config) {
+      render();
+    }
+
+    function mapToCapabilities(config) {
+      return {
+        recolorables: [
+          {
+            get: () => config.background_color || defaultConfig.background_color,
+            set: (value) => {
+              config.background_color = value;
+              if (window.elementSdk) {
+                window.elementSdk.setConfig({ background_color: value });
+              }
+            }
+          },
+          {
+            get: () => config.card_color || defaultConfig.card_color,
+            set: (value) => {
+              config.card_color = value;
+              if (window.elementSdk) {
+                window.elementSdk.setConfig({ card_color: value });
+              }
+            }
+          },
+          {
+            get: () => config.text_color || defaultConfig.text_color,
+            set: (value) => {
+              config.text_color = value;
+              if (window.elementSdk) {
+                window.elementSdk.setConfig({ text_color: value });
+              }
+            }
+          },
+          {
+            get: () => config.primary_color || defaultConfig.primary_color,
+            set: (value) => {
+              config.primary_color = value;
+              if (window.elementSdk) {
+                window.elementSdk.setConfig({ primary_color: value });
+              }
+            }
+          },
+          {
+            get: () => config.secondary_color || defaultConfig.secondary_color,
+            set: (value) => {
+              config.secondary_color = value;
+              if (window.elementSdk) {
+                window.elementSdk.setConfig({ secondary_color: value });
+              }
+            }
+          }
+        ],
+        borderables: [],
+        fontEditable: {
+          get: () => config.font_family || defaultConfig.font_family,
+          set: (value) => {
+            config.font_family = value;
+            if (window.elementSdk) {
+              window.elementSdk.setConfig({ font_family: value });
+            }
+          }
+        },
+        fontSizeable: {
+          get: () => config.font_size || defaultConfig.font_size,
+          set: (value) => {
+            config.font_size = value;
+            if (window.elementSdk) {
+              window.elementSdk.setConfig({ font_size: value });
+            }
+          }
+        }
+      };
+    }
+
+    function mapToEditPanelValues(config) {
+      return new Map([
+        ["store_name", config.store_name || defaultConfig.store_name],
+        ["store_tagline", config.store_tagline || defaultConfig.store_tagline],
+        ["whatsapp_number", config.whatsapp_number || defaultConfig.whatsapp_number]
+      ]);
+    }
+
+    // Initialize app
+    async function init() {
+      if (window.elementSdk) {
+        await window.elementSdk.init({
+          defaultConfig,
+          onConfigChange,
+          mapToCapabilities,
+          mapToEditPanelValues
+        });
+      }
+
+      loadCart();
+      await loadProducts();
+      render();
+
+      // Listen for real-time updates
+      if (db) {
+        db.collection('products').onSnapshot(() => {
+          loadProducts();
+        });
+      }
+    }
+
+    init();
+  </script>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9aff10fd5637d210',t:'MTc2NjA2NTE2Ny4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
